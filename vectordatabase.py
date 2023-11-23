@@ -15,13 +15,6 @@ index = pinecone.GRPCIndex(index_name)
 index.describe_index_stats()
 
 
-query = "Provide an example of a major project"
-
-index.similarity_search(
-    query,  # our search query
-    k=3  # return 3 most relevant docs
-)
-
 # Open Embeddings
 
 from langchain.embeddings.openai import OpenAIEmbeddings
