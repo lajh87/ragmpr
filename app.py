@@ -1,33 +1,30 @@
-from shiny import ui, render, App, reactive
-import pinecone
+
+# Load environmental environments
 import os
 from dotenv import load_dotenv
 load_dotenv()
 
-# Initiate Pinecone
-pinecone.init(
-    api_key=os.getenv("PINECONE_API_KEY"),
-    environment="gcp-starter"
-)
-
 # Open OpenAI Embeddings
 from langchain.embeddings.openai import OpenAIEmbeddings
-
 model_name = 'text-embedding-ada-002'
 embed = OpenAIEmbeddings(
     model=model_name,
     openai_api_key=os.getenv("OPENAI_API_KEY")
 )
 
-# Switch Back to Langchain
+# Load Pinecone in Langchain
+import pinecone
 from langchain.vectorstores import Pinecone
-text_field = "text"
 
-# switch back to normal index for langchain
+pinecone.init(
+    api_key=os.getenv("PINECONE_API_KEY"),
+    environment="gcp-starter"
+)
+
+# use normal index for langchain
 index = pinecone.Index('langchain-retrieval-augmentation')
-
 vectorstore = Pinecone(
-    index, embed.embed_query, text_field
+    index, embed.embed_query, "text"
 )
 
 retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 6})
@@ -44,9 +41,15 @@ def format_docs(docs):
 
 from langchain.prompts import PromptTemplate
 
-template = """Use the following pieces of context to answer the question at the end. 
-If you don't know the answer, just say that you don't know, don't try to make up an answer. 
-Keep the answer as concise as possible. Cite the document and page number your retrieved your answer from.
+template = """Use the following pieces of context to answer the question at the end. /
+If you don't know the answer, just say that you don't know, don't try to make up an answer. /
+Please answer the question with citation to the paragraphs. /
+ For every sentence you write, cite the book name and paragraph number as <id_x_x> /
+ 
+ At the end of your commentary: 
+ 1. Add key words from the document paragraphs. / 
+ 2. Suggest a further question that can be answered by the paragraphs provided. / 
+ 3. Create a sources list of book names, paragraph Number author name, and a link for each book you cited.
 {context}
 Question: {question}
 Helpful Answer:"""
@@ -72,6 +75,8 @@ rag_chain_with_source = RunnableMap(
     "answer": rag_chain_from_docs,
 }
 
+from shiny import ui, render, App, reactive
+
 
 app_ui = ui.page_fluid(
     ui.panel_title("NAO Major Project Reports - Retrieval Augmented Generation"),
@@ -89,6 +94,7 @@ app_ui = ui.page_fluid(
         label = "Ask"
     ),
     ui.tags.h6("Answer"),
+    ui.tags.br(),
     ui.output_text_verbatim("txt")
 )
 
@@ -97,7 +103,8 @@ def server(input, output, session):
     @render.text
     @reactive.event(input.go, ignore_none=False)
     def txt():
-        return f"{rag_chain_with_source.invoke(input.prompt())}"
+        response = rag_chain_with_source.invoke(input.prompt())
+        return f"{response['answer']} \n {response['documents']}"
 
 # This is a shiny.App object. It must be named `app`.
 app = App(app_ui, server)
