@@ -41,68 +41,77 @@ def format_docs(docs):
 
 from langchain.prompts import PromptTemplate
 
-template = """Use the following pieces of context to answer the question at the end. /
-If you don't know the answer, just say that you don't know, don't try to make up an answer. /
-Please answer the question with citation to the paragraphs. /
- For every sentence you write, cite the book name and paragraph number as <id_x_x> /
- 
- At the end of your commentary: 
- 1. Add key words from the document paragraphs. / 
- 2. Suggest a further question that can be answered by the paragraphs provided. / 
- 3. Create a sources list of book names, paragraph Number author name, and a link for each book you cited.
-{context}
-Question: {question}
-Helpful Answer:"""
-rag_prompt_custom = PromptTemplate.from_template(template)
-
 from operator import itemgetter
 from langchain.schema.runnable import RunnableMap
 
-rag_chain_from_docs = (
-    {
-        "context": lambda input: format_docs(input["documents"]),
-        "question": itemgetter("question"),
-    }
-    | rag_prompt_custom
-    | llm
-    | StrOutputParser()
-)
 
-rag_chain_with_source = RunnableMap(
-    {"documents": retriever, "question": RunnablePassthrough()}
-) | {
-    "documents": lambda input: [doc.metadata for doc in input["documents"]],
-    "answer": rag_chain_from_docs,
-}
+system_prompt = """Use the following pieces of context to answer the question at the end. 
+If you don't know the answer, just say that you don't know, don't try to make up an answer. 
+Please answer the question with citation to the document sources and page numbers. 
+ 
+ At the end of your commentary: 
+ 1. Add key words from the document paragraphs.
+ 2. Suggest a further question that can be answered by the paragraphs provided. 
+ 3. Create a sources list of document titles and page numbers."""
 
 from shiny import ui, render, App, reactive
-
-
 app_ui = ui.page_fluid(
     ui.panel_title("NAO Major Project Reports - Retrieval Augmented Generation"),
+    ui.input_text_area(
+        id = "system_prompt",
+        label = "System Prompt",
+        value = system_prompt,
+        width = "800px",
+        height = "300px",
+        resize="vertical",
+        autoresize=True,
+    ),
     ui.input_text_area(
         id = "prompt",
         label = "Question",
         value = "Summarise this context",
-        width = "400px",
-        height = "250px",
-        resize = "none",  
-        autoresize=True
+        width = "800px",
+        rows = 6,
+        autoresize=True,
     ),
     ui.input_action_button(
         id = "go",
         label = "Ask"
     ),
-    ui.tags.h6("Answer"),
     ui.tags.br(),
-    ui.output_text_verbatim("txt")
+    ui.tags.br(),
+    ui.tags.h6("Answer"),
+    ui.output_text_verbatim("txt", placeholder = "Placeholder")
 )
 
 def server(input, output, session):
     @output
     @render.text
-    @reactive.event(input.go, ignore_none=False)
-    def txt():
+    @reactive.event(input.go, ignore_none=False, ignore_init=True)
+    def txt():  
+        template = input.system_prompt() + """
+        {context}
+        Question: {question}
+        Helpful Answer:"""
+        rag_prompt_custom = PromptTemplate.from_template(template)
+
+        rag_chain_from_docs = (
+            {
+                "context": lambda input: format_docs(input["documents"]),
+                "question": itemgetter("question"),
+            }
+            | rag_prompt_custom
+            | llm
+            | StrOutputParser()
+        )
+
+        rag_chain_with_source = RunnableMap(
+            {"documents": retriever, "question": RunnablePassthrough()}
+        ) | {
+            "documents": lambda input: [doc.metadata for doc in input["documents"]],
+            "answer": rag_chain_from_docs,
+        }
+
         response = rag_chain_with_source.invoke(input.prompt())
         return f"{response['answer']} \n {response['documents']}"
 
