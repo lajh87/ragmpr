@@ -27,7 +27,7 @@ vectorstore = Pinecone(
     index, embed.embed_query, "text"
 )
 
-retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 6})
+retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 10})
 
 
 # Generate
@@ -69,7 +69,7 @@ app_ui = ui.page_fluid(
     ui.input_text_area(
         id = "prompt",
         label = "Question",
-        value = "Summarise this context",
+        value = "What are the key lessons learned from delivery of major projects in the MOD?",
         width = "800px",
         rows = 6,
         autoresize=True,

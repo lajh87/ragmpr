@@ -4,6 +4,18 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
+
+# Open Embeddings
+from langchain.embeddings.openai import OpenAIEmbeddings
+model_name = 'text-embedding-ada-002'
+embed = OpenAIEmbeddings(
+    model=model_name,
+    openai_api_key=os.getenv("OPENAI_API_KEY")
+)
+
+# Connect to Pinecone
+from langchain.vectorstores import Pinecone
+text_field = "text"
 index_name = 'langchain-retrieval-augmentation'
 
 pinecone.init(
@@ -11,37 +23,10 @@ pinecone.init(
     environment="gcp-starter"
 )
 
-# Connect to Index
-index = pinecone.GRPCIndex(index_name)
-index.describe_index_stats()
-
-
-# Open Embeddings
-
-from langchain.embeddings.openai import OpenAIEmbeddings
-
-model_name = 'text-embedding-ada-002'
-embed = OpenAIEmbeddings(
-    model=model_name,
-    openai_api_key=os.getenv("OPENAI_API_KEY")
-)
-
-# Switch Back to Langchain
-from langchain.vectorstores import Pinecone
-text_field = "text"
-
-# switch back to normal index for langchain
+# use normal index for langchain
 index = pinecone.Index(index_name)
-
 vectorstore = Pinecone(
     index, embed.embed_query, text_field
-)
-
-# Query
-query = "Provide an example of a major project"
-vectorstore.similarity_search(
-    query,  # our search query
-    k=3  # return 3 most relevant docs
 )
 
 retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 6})
@@ -65,11 +50,28 @@ Question: {question}
 Helpful Answer:"""
 rag_prompt_custom = PromptTemplate.from_template(template)
 
-rag_chain = (
-    {"context": retriever | format_docs, "question": RunnablePassthrough()}
+from operator import itemgetter
+from langchain.schema.runnable import RunnableMap
+
+rag_chain_from_docs = (
+    {
+        "context": lambda input: format_docs(input["documents"]),
+        "question": itemgetter("question"),
+    }
     | rag_prompt_custom
     | llm
     | StrOutputParser()
 )
 
-rag_chain.invoke("What are the causes of schedule variation?")
+rag_chain_with_source = RunnableMap(
+    {"documents": retriever, "question": RunnablePassthrough()}
+) | {
+    "documents": lambda input: [doc.metadata for doc in input["documents"]],
+    "answer": rag_chain_from_docs,
+}
+
+response = rag_chain_with_source.invoke("What are the causes of schedule variation?")
+print(response)
+
+response["answer"]
+response["documents"]
